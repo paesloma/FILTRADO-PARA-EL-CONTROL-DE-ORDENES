@@ -6,6 +6,13 @@ import plotly.express as px
 
 st.set_page_config(page_title="Gestión de Repuestos - Dashboard", layout="wide")   
 
+# --- INICIALIZACIÓN DE VARIABLES DE ESTADO ---
+# Esto permite que Streamlit recuerde qué botón presionaste
+if 'estado_sel' not in st.session_state:
+    st.session_state.estado_sel = None
+if 'mes_sel' not in st.session_state:
+    st.session_state.mes_sel = None
+
 # --- BANNER ---
 st.markdown(f"""
     <div style="background: linear-gradient(90deg, #1F4E78 0%, #2E75B6 100%); padding: 20px; border-radius: 15px; color: white; text-align: center; margin-bottom: 20px;">
@@ -117,7 +124,7 @@ if archivos:
                 df_filtrado.loc[df_filtrado['Estado'].str.contains(est, case=False, na=False, regex=False), 'Estado_Grupo'] = est
 
         if not df_filtrado.empty:
-            # Crear la tabla dinámica
+            # Crear la tabla dinámica base para obtener los cálculos
             tabla_pivote = pd.pivot_table(
                 df_filtrado, 
                 values='#Orden', 
@@ -137,25 +144,34 @@ if archivos:
             filas_ordenadas = [e for e in estados_destacados if e in tabla_pivote.index] + ['Total general']
             tabla_pivote = tabla_pivote.reindex(index=filas_ordenadas)
 
-            # Estilo de la tabla
-            tabla_estilo = tabla_pivote.style.format("{:.0f}").background_gradient(
-                cmap='YlOrRd', axis=None, subset=(filas_ordenadas[:-1], columnas_finales[:-1])
-            )
-
-            # --- RENDERIZADO VISUAL: TABLA Y GRÁFICO ---
-            col_tabla, col_grafico = st.columns([1.5, 1])
+            # --- RENDERIZADO VISUAL: MATRIZ DE BOTONES Y GRÁFICO ---
+            col_tabla, col_grafico = st.columns([1.8, 1])
 
             with col_tabla:
-                st.write("### 📊 Recuento por Estado y Mes")
-                st.caption("👈 **HAZ CLIC UNA VEZ EN UNA CELDA** para ver el detalle abajo.")
+                st.write("### 📊 Matriz Interactiva de Órdenes")
+                st.caption("👆 **PRESIONA CUALQUIER NÚMERO** (botón) para desplegar el resumen en la parte inferior.")
                 
-                # INTERACCIÓN DE CLIC EN LA TABLA
-                seleccion = st.dataframe(
-                    tabla_estilo,
-                    use_container_width=True,
-                    on_select="rerun",
-                    selection_mode="single-cell"
-                )
+                # Construcción de encabezados de la matriz
+                columnas_ui = st.columns([2.5] + [1]*len(columnas_finales))
+                columnas_ui[0].markdown("**Estado / Mes**")
+                for i, col_name in enumerate(columnas_finales):
+                    columnas_ui[i+1].markdown(f"**{col_name}**")
+                    
+                st.markdown("---")
+                
+                # Construcción de filas con botones reales
+                for estado in filas_ordenadas:
+                    cols_fila = st.columns([2.5] + [1]*len(columnas_finales))
+                    cols_fila[0].markdown(f"*{estado}*") # Nombre del estado
+                    
+                    for i, mes in enumerate(columnas_finales):
+                        valor = int(tabla_pivote.loc[estado, mes])
+                        
+                        # Generamos un botón por cada celda
+                        if cols_fila[i+1].button(str(valor), key=f"btn_{estado}_{mes}", use_container_width=True):
+                            # Al hacer clic, guardamos la selección en la memoria
+                            st.session_state.estado_sel = estado
+                            st.session_state.mes_sel = mes
 
             with col_grafico:
                 st.write("### 🥧 Distribución General")
@@ -170,7 +186,7 @@ if archivos:
                     color_discrete_sequence=px.colors.sequential.YlOrRd[::-1]
                 )
                 
-                # Ajustar leyenda y márgenes para que se vea bien
+                # Ajustar leyenda para que se vea compacta
                 fig.update_layout(
                     margin=dict(t=20, b=20, l=0, r=0),
                     legend=dict(orientation="h", yanchor="bottom", y=-0.5, xanchor="center", x=0.5)
@@ -179,19 +195,10 @@ if archivos:
 
             st.markdown("---")
             
-            # --- LÓGICA CORREGIDA DE EXTRACCIÓN DEL CLIC ---
-            estado_seleccionado = None
-            mes_seleccionado = None
+            # --- SECCIÓN INTERACTIVA DE DETALLE (Lee la memoria del botón) ---
+            estado_seleccionado = st.session_state.estado_sel
+            mes_seleccionado = st.session_state.mes_sel
 
-            if seleccion and len(seleccion.selection.rows) > 0 and len(seleccion.selection.columns) > 0:
-                idx_fila = seleccion.selection.rows[0]
-                idx_columna = seleccion.selection.columns[0]
-                
-                # Traducir los índices numéricos a los nombres reales de las filas y columnas
-                estado_seleccionado = tabla_pivote.index[idx_fila]
-                mes_seleccionado = tabla_pivote.columns[idx_columna]
-
-            # --- SECCIÓN INTERACTIVA DE DETALLE ---
             if estado_seleccionado and mes_seleccionado:
                 st.write(f"### 🔍 Detalle de Órdenes: {estado_seleccionado} | {mes_seleccionado}")
                 
@@ -204,7 +211,7 @@ if archivos:
                     df_detalle = df_detalle[df_detalle['Mes'] == mes_seleccionado]
 
                 if not df_detalle.empty:
-                    st.success(f"Se encontraron **{len(df_detalle)}** órdenes registradas en esta celda.")
+                    st.success(f"Se encontraron **{len(df_detalle)}** órdenes registradas tras presionar el botón.")
                     
                     col_serie = 'Serie' if 'Serie' in df_detalle.columns else 'Serie/Artículo'
                     columnas_vista = ['#Orden', 'Fecha', 'Técnico', 'Cliente', 'Estado', 'Producto', col_serie, 'Repuestos']
@@ -225,7 +232,7 @@ if archivos:
                 else:
                     st.warning("El recuadro seleccionado tiene un valor de 0 órdenes. No hay información para mostrar.")
             else:
-                st.info("👆 Selecciona (haz clic) en cualquier número de la tabla superior para visualizar y descargar el desglose de órdenes aquí.")
+                st.info("👆 Selecciona (haz clic) en cualquier botón numérico de la tabla superior para visualizar y descargar el desglose de órdenes aquí.")
 
         else:
             st.warning("No se encontraron datos en los últimos 3 meses bajo los estados y marcas especificados.")
