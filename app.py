@@ -163,7 +163,7 @@ if archivos:
             tabla_pivote = tabla_pivote.reindex(index=filas_ordenadas)
 
             # --- 1. MATRIZ DE ÓRDENES (Ancho Completo) ---
-            st.write("### 📊 Matriz de Órdenes (Haz clic para detalles)")
+            st.write("### Resumen Gerencia)")
             
             cols_head = st.columns([2] + [1]*len(columnas_finales))
             cols_head[0].markdown("**Estado / Mes**")
