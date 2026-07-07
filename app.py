@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 from io import BytesIO
+import plotly.express as px
 
 st.set_page_config(page_title="Gestión de Repuestos - Dashboard", layout="wide")   
 
@@ -111,15 +112,11 @@ if archivos:
                 mask_estados |= cond
             df_filtrado = df_filtrado[mask_estados]
 
-            # Reemplazar el nombre del estado en el dataframe por el nombre exacto para agrupar correctamente
             df_filtrado['Estado_Grupo'] = 'Otro'
             for est in estados_destacados:
                 df_filtrado.loc[df_filtrado['Estado'].str.contains(est, case=False, na=False, regex=False), 'Estado_Grupo'] = est
 
         if not df_filtrado.empty:
-            st.write("### 📊 Recuento de #Orden por Estado y Mes")
-            st.caption("👈 **HAZ CLIC DIRECTAMENTE EN UN NÚMERO DE LA TABLA** para ver las órdenes correspondientes en la parte inferior.")
-            
             # Crear la tabla dinámica
             tabla_pivote = pd.pivot_table(
                 df_filtrado, 
@@ -145,37 +142,52 @@ if archivos:
                 cmap='YlOrRd', axis=None, subset=(filas_ordenadas[:-1], columnas_finales[:-1])
             )
 
-            # --- INTERACCIÓN DE CLIC EN LA TABLA ---
-            estado_seleccionado = None
-            mes_seleccionado = None
+            # --- RENDERIZADO VISUAL: TABLA Y GRÁFICO ---
+            col_tabla, col_grafico = st.columns([2, 1])
 
-            try:
-                # Utilizamos la propiedad de selección nativa de Streamlit
-                evento_click = st.dataframe(
+            with col_tabla:
+                st.write("### 📊 Recuento de #Orden por Estado y Mes")
+                st.caption("👈 **HAZ CLIC DIRECTAMENTE EN UNA CELDA** para ver las órdenes abajo.")
+                
+                # INTERACCIÓN DE CLIC EN LA TABLA
+                seleccion = st.dataframe(
                     tabla_estilo,
                     use_container_width=True,
                     on_select="rerun",
                     selection_mode="single-cell"
                 )
+
+            with col_grafico:
+                st.write("### 🥧 Distribución de Estados")
+                # Preparamos los datos para el pie chart excluyendo el 'Total general'
+                df_pie = df_filtrado['Estado_Grupo'].value_counts().reset_index()
+                df_pie.columns = ['Estado', 'Cantidad']
                 
-                # Extraer la fila y columna exactas donde el usuario hizo clic
-                if evento_click and len(evento_click.selection.rows) > 0 and len(evento_click.selection.columns) > 0:
-                    idx_fila = evento_click.selection.rows[0]
-                    nombre_columna = evento_click.selection.columns[0]
-                    
-                    estado_seleccionado = tabla_pivote.index[idx_fila]
-                    mes_seleccionado = nombre_columna
-            except Exception:
-                # Si la versión de Streamlit es antigua y no soporta "on_select"
-                st.dataframe(tabla_estilo, use_container_width=True)
-                st.info("💡 Tu versión de Streamlit no soporta clics en celdas. Usa los selectores de abajo (o actualiza con 'pip install --upgrade streamlit').")
-                col1, col2 = st.columns(2)
-                estado_seleccionado = col1.selectbox("Selecciona Estado:", options=filas_ordenadas)
-                mes_seleccionado = col2.selectbox("Selecciona Mes:", options=columnas_finales)
+                fig = px.pie(
+                    df_pie, 
+                    values='Cantidad', 
+                    names='Estado', 
+                    hole=0.4, 
+                    color_discrete_sequence=px.colors.sequential.YlOrRd[::-1]
+                )
+                fig.update_layout(margin=dict(t=0, b=0, l=0, r=0))
+                st.plotly_chart(fig, use_container_width=True)
 
             st.markdown("---")
             
-            # --- SECCIÓN INTERACTIVA DE DETALLE BASADA EN EL CLIC ---
+            # --- LÓGICA DE EXTRACCIÓN DEL CLIC ---
+            estado_seleccionado = None
+            mes_seleccionado = None
+
+            # Si el usuario hizo clic en una celda, extraemos sus coordenadas
+            if seleccion and len(seleccion.selection.rows) > 0 and len(seleccion.selection.columns) > 0:
+                idx_fila = seleccion.selection.rows[0]
+                nombre_columna = seleccion.selection.columns[0]
+                
+                estado_seleccionado = tabla_pivote.index[idx_fila]
+                mes_seleccionado = nombre_columna
+
+            # --- SECCIÓN INTERACTIVA DE DETALLE ---
             if estado_seleccionado and mes_seleccionado:
                 st.write(f"### 🔍 Detalle de Órdenes: {estado_seleccionado} | {mes_seleccionado}")
                 
@@ -188,7 +200,7 @@ if archivos:
                     df_detalle = df_detalle[df_detalle['Mes'] == mes_seleccionado]
 
                 if not df_detalle.empty:
-                    st.success(f"Se encontraron **{len(df_detalle)}** órdenes registradas.")
+                    st.success(f"Se encontraron **{len(df_detalle)}** órdenes registradas en esta celda.")
                     
                     col_serie = 'Serie' if 'Serie' in df_detalle.columns else 'Serie/Artículo'
                     columnas_vista = ['#Orden', 'Fecha', 'Técnico', 'Cliente', 'Estado', 'Producto', col_serie, 'Repuestos']
@@ -207,9 +219,9 @@ if archivos:
                         use_container_width=True
                     )
                 else:
-                    st.warning("El recuadro seleccionado tiene un valor de 0 órdenes.")
+                    st.warning("El recuadro seleccionado tiene un valor de 0 órdenes. No hay información para mostrar.")
             else:
-                st.info("👆 Haz clic en cualquier celda con números de la tabla de arriba para ver las órdenes correspondientes aquí abajo.")
+                st.info("👆 Selecciona (haz clic) en cualquier número de la tabla superior para visualizar y descargar el desglose de órdenes aquí.")
 
         else:
             st.warning("No se encontraron datos en los últimos 3 meses bajo los estados y marcas especificados.")
