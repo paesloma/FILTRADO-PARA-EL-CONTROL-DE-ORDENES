@@ -6,11 +6,20 @@ import plotly.express as px
 
 st.set_page_config(page_title="Dashboard Gerencial", layout="wide")
 
-# --- PALETA DE AZULES CORPORATIVA (Ampliada para 9 estados) ---
-BLUE_PALETTE = [
-    "#001122", "#002244", "#003366", "#004488", "#0055aa", 
-    "#0066cc", "#3385ff", "#66a3ff", "#99c2ff"
-]
+# --- MAPA DE COLORES CORPORATIVO FIJO ---
+# Se asigna un tono específico a cada estado para mantener consistencia visual al filtrar.
+COLOR_MAP = {
+    "Anulado": "#001122", 
+    "Cerrada/Técnico": "#002244", 
+    "Envio/Repuestos": "#003366", 
+    "Facturado/Terminado": "#004488", 
+    "Falta Aprobación": "#0055aa", 
+    "Proceso/Repuestos": "#0066cc", 
+    "Reclamo proveedor": "#3385ff", 
+    "Reparado/Pendiente Por Entregar": "#66a3ff", 
+    "Solicita/Repuestos": "#99c2ff",
+    "TOTAL": "#00ffff"  # Cian brillante para resaltar la tendencia global
+}
 
 # --- INICIALIZACIÓN DE VARIABLES DE ESTADO ---
 if 'estado_sel' not in st.session_state: st.session_state.estado_sel = None
@@ -46,7 +55,7 @@ if archivos:
         # Procesamiento de Fechas
         if 'Fecha' in df_total.columns:
             df_total['Fecha_Obj'] = pd.to_datetime(df_total['Fecha'], errors='coerce', dayfirst=True)
-            df_total['Mes_Num'] = df_total['Fecha_Obj'].dt.to_period('M') # Para ordenar cronológicamente
+            df_total['Mes_Num'] = df_total['Fecha_Obj'].dt.to_period('M')
         else:
             df_total['Fecha_Obj'] = pd.NaT
             df_total['Mes_Num'] = pd.NaT
@@ -77,6 +86,19 @@ if archivos:
         # 3. Ocultar TVs
         ocultar_tvs = st.sidebar.checkbox("🚫 Ocultar TVs genéricos", value=False)
 
+        # 4. Filtro por Estados
+        st.sidebar.subheader("📌 Filtro por Estado")
+        estados_disponibles = [
+            "Anulado", "Cerrada/Técnico", "Envio/Repuestos", "Facturado/Terminado", 
+            "Falta Aprobación", "Proceso/Repuestos", "Reclamo proveedor", 
+            "Reparado/Pendiente Por Entregar", "Solicita/Repuestos"
+        ]
+        estados_seleccionados = st.sidebar.multiselect(
+            "Estados a visualizar:",
+            options=estados_disponibles,
+            default=estados_disponibles
+        )
+
         # --- APLICACIÓN DE MÁSCARAS Y FILTROS ---
         df_filtrado = df_total.copy()
 
@@ -106,27 +128,16 @@ if archivos:
         elif not marcas_seleccionadas:
             df_filtrado = df_filtrado.iloc[0:0]
 
-        # Agrupación de Todos los Estados Solicitados
-        estados_destacados = [
-            "Anulado",
-            "Cerrada/Técnico",
-            "Envio/Repuestos",
-            "Facturado/Terminado",
-            "Falta Aprobación",
-            "Proceso/Repuestos",
-            "Reclamo proveedor",
-            "Reparado/Pendiente Por Entregar",
-            "Solicita/Repuestos"
-        ]
-        
-        if not df_filtrado.empty:
+        # Agrupación de Estados Dinámica (Basada en lo seleccionado en la barra lateral)
+        if not df_filtrado.empty and estados_seleccionados:
             df_filtrado['Estado_Grupo'] = 'Otro'
-            for est in estados_destacados:
+            for est in estados_seleccionados:
                 df_filtrado.loc[df_filtrado['Estado'].str.contains(est, case=False, na=False, regex=False), 'Estado_Grupo'] = est
             
-            # Filtramos solo para mostrar los estados destacados
             df_filtrado = df_filtrado[df_filtrado['Estado_Grupo'] != 'Otro']
             df_filtrado['Mes'] = df_filtrado['Fecha_Obj'].dt.strftime('%b')
+        else:
+            df_filtrado = df_filtrado.iloc[0:0]
 
         # --- GENERACIÓN DE LA INTERFAZ ---
         if not df_filtrado.empty:
@@ -147,7 +158,8 @@ if archivos:
             columnas_finales = [m for m in meses_ordenados if m in tabla_pivote.columns] + (['TOTAL'] if 'TOTAL' in tabla_pivote.columns else [])
             tabla_pivote = tabla_pivote.reindex(columns=columnas_finales)
             
-            filas_ordenadas = [e for e in estados_destacados if e in tabla_pivote.index] + (['TOTAL'] if 'TOTAL' in tabla_pivote.index else [])
+            # Filtramos las filas basándonos en los estados seleccionados por el usuario
+            filas_ordenadas = [e for e in estados_seleccionados if e in tabla_pivote.index] + (['TOTAL'] if 'TOTAL' in tabla_pivote.index else [])
             tabla_pivote = tabla_pivote.reindex(index=filas_ordenadas)
 
             # --- 1. MATRIZ DE ÓRDENES (Ancho Completo) ---
@@ -178,7 +190,7 @@ if archivos:
             st.markdown("---")
 
             # --- 2. GRÁFICOS GERENCIALES (Pastel y Líneas) ---
-            st.write("### RESUMEN")
+            st.write("### 📈 Visualización Gerencial")
             col_pie, col_line = st.columns(2)
 
             with col_pie:
@@ -191,7 +203,8 @@ if archivos:
                     values='Cantidad', 
                     names='Estado', 
                     hole=0.4, 
-                    color_discrete_sequence=BLUE_PALETTE,
+                    color='Estado',
+                    color_discrete_map=COLOR_MAP,
                     title="Distribución de Estados"
                 )
                 fig_pie.update_layout(
@@ -203,17 +216,28 @@ if archivos:
             with col_line:
                 # Gráfico de Líneas (Tendencia)
                 df_trend = df_filtrado.groupby(['Mes_Num', 'Mes', 'Estado_Grupo']).size().reset_index(name='Cantidad')
-                df_trend = df_trend.sort_values('Mes_Num')
+                
+                # Cálculo adicional para la línea TOTAL de la gráfica
+                df_total_trend = df_filtrado.groupby(['Mes_Num', 'Mes']).size().reset_index(name='Cantidad')
+                df_total_trend['Estado_Grupo'] = 'TOTAL'
+                
+                # Consolidación de tendencias
+                df_trend_final = pd.concat([df_trend, df_total_trend], ignore_index=True)
+                df_trend_final = df_trend_final.sort_values('Mes_Num')
                 
                 fig_line = px.line(
-                    df_trend, 
+                    df_trend_final, 
                     x='Mes', 
                     y='Cantidad', 
                     color='Estado_Grupo',
-                    color_discrete_sequence=BLUE_PALETTE,
+                    color_discrete_map=COLOR_MAP,
                     markers=True,
                     title="Tendencia Operativa por Mes"
                 )
+                
+                # Realzar visualmente la línea del TOTAL para gerencia
+                fig_line.update_traces(line=dict(width=4), selector=dict(name="TOTAL"))
+                
                 fig_line.update_layout(
                     margin=dict(t=40, b=20, l=0, r=0),
                     legend=dict(orientation="h", yanchor="bottom", y=-0.5, xanchor="center", x=0.5),
@@ -263,4 +287,4 @@ if archivos:
             else:
                 st.info("👆 Selecciona cualquier número en la Matriz de Órdenes superior para ver y descargar los detalles.")
         else:
-            st.warning("No se encontraron órdenes con los filtros actuales (Fechas o Marcas).")
+            st.warning("No se encontraron órdenes con los filtros actuales (Fechas, Marcas o Estados).")
