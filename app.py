@@ -43,10 +43,12 @@ if archivos:
         # Procesamiento de Fechas
         if 'Fecha' in df_total.columns:
             df_total['Fecha_Obj'] = pd.to_datetime(df_total['Fecha'], errors='coerce', dayfirst=True)
+            df_total['Mes_Num'] = df_total['Fecha_Obj'].dt.to_period('M') # Para ordenar cronológicamente
         else:
             df_total['Fecha_Obj'] = pd.NaT
+            df_total['Mes_Num'] = pd.NaT
             
-        # Limpieza de duplicados y exclusión de técnicos internos
+        # Limpieza de duplicados y exclusión de técnicos de red interna
         if '#Orden' in df_total.columns:
             df_total = df_total.drop_duplicates(subset=['#Orden'])
         if 'Técnico' in df_total.columns:
@@ -114,7 +116,7 @@ if archivos:
 
         # --- GENERACIÓN DE LA INTERFAZ ---
         if not df_filtrado.empty:
-            # Pivot table con TOTALES (margins=True)
+            # Pivot table con TOTALES
             tabla_pivote = pd.pivot_table(
                 df_filtrado, 
                 values='#Orden', 
@@ -126,7 +128,7 @@ if archivos:
                 margins_name='TOTAL'
             )
             
-            # Ordenamiento para asegurar cronología + Columna TOTAL al final
+            # Ordenamiento para asegurar cronología
             meses_ordenados = df_filtrado.sort_values('Fecha_Obj')['Mes'].unique().tolist()
             columnas_finales = [m for m in meses_ordenados if m in tabla_pivote.columns] + (['TOTAL'] if 'TOTAL' in tabla_pivote.columns else [])
             tabla_pivote = tabla_pivote.reindex(columns=columnas_finales)
@@ -134,74 +136,82 @@ if archivos:
             filas_ordenadas = [e for e in estados_destacados if e in tabla_pivote.index] + (['TOTAL'] if 'TOTAL' in tabla_pivote.index else [])
             tabla_pivote = tabla_pivote.reindex(index=filas_ordenadas)
 
-            # Estructura visual de columnas
-            col_matriz, col_grafico = st.columns([2, 1])
-
-            with col_matriz:
-                st.write("### 📊 Matriz de Órdenes (Haz clic para detalles)")
+            # --- 1. MATRIZ DE ÓRDENES (Ancho Completo) ---
+            st.write("### 📊 Matriz de Órdenes (Haz clic para detalles)")
+            
+            cols_head = st.columns([2] + [1]*len(columnas_finales))
+            cols_head[0].markdown("**Estado / Mes**")
+            for i, c_name in enumerate(columnas_finales): 
+                cols_head[i+1].markdown(f"**{c_name}**")
+            
+            st.markdown("---")
+            
+            for estado in filas_ordenadas:
+                cols_row = st.columns([2] + [1]*len(columnas_finales))
                 
-                # Encabezados de la matriz
-                cols_head = st.columns([2.5] + [1]*len(columnas_finales))
-                cols_head[0].markdown("**Estado / Mes**")
-                for i, c_name in enumerate(columnas_finales): 
-                    cols_head[i+1].markdown(f"**{c_name}**")
-                
-                st.markdown("---")
-                
-                # Generación de botones por celda (incluyendo totales)
-                for estado in filas_ordenadas:
-                    cols_row = st.columns([2.5] + [1]*len(columnas_finales))
+                if estado == 'TOTAL':
+                    cols_row[0].markdown(f"**{estado}**")
+                else:
+                    cols_row[0].markdown(f"*{estado}*")
                     
-                    if estado == 'TOTAL':
-                        cols_row[0].markdown(f"**{estado}**")
-                    else:
-                        cols_row[0].markdown(f"*{estado}*")
-                        
-                    for i, mes in enumerate(columnas_finales):
-                        valor = int(tabla_pivote.loc[estado, mes])
-                        
-                        # Botón. Si se presiona, guarda el estado y reinicia.
-                        if cols_row[i+1].button(str(valor), key=f"btn_{estado}_{mes}", use_container_width=True):
-                            st.session_state.estado_sel = estado
-                            st.session_state.mes_sel = mes
-                            st.rerun()
+                for i, mes in enumerate(columnas_finales):
+                    valor = int(tabla_pivote.loc[estado, mes])
+                    if cols_row[i+1].button(str(valor), key=f"btn_{estado}_{mes}", use_container_width=True):
+                        st.session_state.estado_sel = estado
+                        st.session_state.mes_sel = mes
+                        st.rerun()
 
-            with col_grafico:
-                st.write("### 🥧 Distribución General")
-                # Pie Chart excluyendo los totales para no distorsionar el gráfico
+            st.markdown("---")
+
+            # --- 2. GRÁFICOS GERENCIALES (Pastel y Líneas) ---
+            st.write("### 📈 Visualización Gerencial")
+            col_pie, col_line = st.columns(2)
+
+            with col_pie:
+                # Gráfico de Pastel
                 df_pie = df_filtrado['Estado_Grupo'].value_counts().reset_index()
                 df_pie.columns = ['Estado', 'Cantidad']
                 
-                fig = px.pie(
+                fig_pie = px.pie(
                     df_pie, 
                     values='Cantidad', 
                     names='Estado', 
                     hole=0.4, 
-                    color_discrete_sequence=BLUE_PALETTE
+                    color_discrete_sequence=BLUE_PALETTE,
+                    title="Distribución de Estados"
                 )
-                fig.update_layout(
-                    margin=dict(t=20, b=20, l=0, r=0),
-                    legend=dict(orientation="h", yanchor="bottom", y=-0.5, xanchor="center", x=0.5)
+                fig_pie.update_layout(
+                    margin=dict(t=40, b=20, l=0, r=0),
+                    legend=dict(orientation="h", yanchor="bottom", y=-0.3, xanchor="center", x=0.5)
                 )
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig_pie, use_container_width=True)
+
+            with col_line:
+                # Gráfico de Líneas (Tendencia)
+                # Agrupamos por Mes_Num para garantizar que el gráfico respete el orden cronológico
+                df_trend = df_filtrado.groupby(['Mes_Num', 'Mes', 'Estado_Grupo']).size().reset_index(name='Cantidad')
+                df_trend = df_trend.sort_values('Mes_Num')
                 
-            st.markdown("---")
-            
-            # Botón de Descarga Global en la parte inferior del bloque principal (Full Width)
-            st.write("### 📥 Extracción Global (Todo el Periodo)")
-            output_global = BytesIO()
-            with pd.ExcelWriter(output_global, engine='openpyxl') as writer:
-                df_filtrado.to_excel(writer, index=False, sheet_name='Base_Filtrada')
-            st.download_button(
-                label=f"DESCARGAR TODO EL PERIODO ({len(df_filtrado)} Órdenes)",
-                data=output_global.getvalue(),
-                file_name=f"Reporte_Gerencial_{datetime.now().strftime('%Y%m%d')}.xlsx",
-                use_container_width=True
-            )
+                fig_line = px.line(
+                    df_trend, 
+                    x='Mes', 
+                    y='Cantidad', 
+                    color='Estado_Grupo',
+                    color_discrete_sequence=BLUE_PALETTE,
+                    markers=True,
+                    title="Tendencia Operativa por Mes"
+                )
+                fig_line.update_layout(
+                    margin=dict(t=40, b=20, l=0, r=0),
+                    legend=dict(orientation="h", yanchor="bottom", y=-0.3, xanchor="center", x=0.5),
+                    xaxis_title=None,
+                    yaxis_title="Cantidad de Órdenes"
+                )
+                st.plotly_chart(fig_line, use_container_width=True)
 
             st.markdown("---")
 
-            # --- SECCIÓN DETALLE (AL HACER CLIC EN UN BOTÓN) ---
+            # --- 3. SECCIÓN DETALLE Y DESCARGA ESPECÍFICA ---
             if st.session_state.estado_sel and st.session_state.mes_sel:
                 estado_sel = st.session_state.estado_sel
                 mes_sel = st.session_state.mes_sel
@@ -210,7 +220,6 @@ if archivos:
                 
                 df_detalle = df_filtrado.copy()
                 
-                # Lógica para manejar si el usuario hizo clic en la fila o columna "TOTAL"
                 if estado_sel != 'TOTAL':
                     df_detalle = df_detalle[df_detalle['Estado_Grupo'] == estado_sel]
                 if mes_sel != 'TOTAL':
@@ -225,7 +234,7 @@ if archivos:
                     
                     st.dataframe(df_detalle[columnas_existentes], hide_index=True, use_container_width=True)
 
-                    # Botón de descarga específico del detalle en la parte inferior del bloque
+                    # Botón de descarga específico del detalle
                     output_detalle = BytesIO()
                     with pd.ExcelWriter(output_detalle, engine='openpyxl') as writer:
                         df_detalle[columnas_existentes].to_excel(writer, index=False, sheet_name='Detalle')
