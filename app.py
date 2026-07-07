@@ -40,9 +40,7 @@ if archivos:
         # --- MANEJO DE FECHAS ---
         if 'Fecha' in df_total.columns:
             df_total['Fecha_Obj'] = pd.to_datetime(df_total['Fecha'], errors='coerce', dayfirst=True)
-            # Crear columna de Mes abreviado (Ej: Jan, Feb, Mar)
             df_total['Mes'] = df_total['Fecha_Obj'].dt.strftime('%b')
-            # Columna de ordenación de meses para mantener la cronología
             df_total['Mes_Num'] = df_total['Fecha_Obj'].dt.to_period('M')
         else:
             df_total['Fecha_Obj'] = pd.NaT
@@ -78,11 +76,9 @@ if archivos:
         # --- APLICACIÓN DE MÁSCARAS ---
         df_filtrado = df_total.copy()
 
-        # 1. Filtro Ocultar TVs
         if ocultar_tvs and not df_filtrado.empty:
             df_filtrado = df_filtrado[~df_filtrado['Producto'].str.contains('TELEVISOR|TV', case=False, na=False)]
 
-        # 2. Filtro de Marcas
         if not df_filtrado.empty and marcas_seleccionadas:
             texto_busqueda = (df_filtrado['Marca'] + " " + df_filtrado['Producto']) if 'Marca' in df_filtrado.columns else df_filtrado['Producto']
 
@@ -103,12 +99,11 @@ if archivos:
         elif not marcas_seleccionadas:
             df_filtrado = df_filtrado.iloc[0:0]
 
-        # 3. Filtrar a los últimos 3 meses con datos
+        # Filtrar a los últimos 3 meses con datos
         meses_unicos = sorted(df_filtrado['Mes_Num'].dropna().unique(), reverse=True)
-        meses_3 = meses_unicos[:3] # Tomar los 3 más recientes
+        meses_3 = meses_unicos[:3] 
         df_filtrado = df_filtrado[df_filtrado['Mes_Num'].isin(meses_3)]
 
-        # 4. Filtrar solo los estados de interés
         if not df_filtrado.empty:
             condiciones_estado = [df_filtrado['Estado'].str.contains(est, case=False, na=False, regex=False) for est in estados_destacados]
             mask_estados = condiciones_estado[0]
@@ -116,14 +111,14 @@ if archivos:
                 mask_estados |= cond
             df_filtrado = df_filtrado[mask_estados]
 
-            # Reemplazar el nombre del estado en el dataframe por el nombre exacto de la lista para agrupar correctamente
+            # Reemplazar el nombre del estado en el dataframe por el nombre exacto para agrupar correctamente
+            df_filtrado['Estado_Grupo'] = 'Otro'
             for est in estados_destacados:
                 df_filtrado.loc[df_filtrado['Estado'].str.contains(est, case=False, na=False, regex=False), 'Estado_Grupo'] = est
 
         if not df_filtrado.empty:
-            # --- CONSTRUCCIÓN DE LA TABLA DINÁMICA ---
             st.write("### 📊 Recuento de #Orden por Estado y Mes")
-            st.caption("Muestra los datos de los últimos 3 meses registrados. Utiliza los selectores debajo de la tabla para ver el detalle de las órdenes.")
+            st.caption("👈 **HAZ CLIC DIRECTAMENTE EN UN NÚMERO DE LA TABLA** para ver las órdenes correspondientes en la parte inferior.")
             
             # Crear la tabla dinámica
             tabla_pivote = pd.pivot_table(
@@ -137,65 +132,85 @@ if archivos:
                 margins_name='Total general'
             )
             
-            # Ordenar las columnas cronológicamente (basado en el orden de meses encontrados)
+            # Ordenamiento
             meses_ordenados = df_filtrado.sort_values('Mes_Num')['Mes'].unique().tolist()
             columnas_finales = [m for m in meses_ordenados if m in tabla_pivote.columns] + ['Total general']
             tabla_pivote = tabla_pivote.reindex(columns=columnas_finales)
 
-            # Ordenar las filas según la lista de estados destacados (dejando el Total al final)
             filas_ordenadas = [e for e in estados_destacados if e in tabla_pivote.index] + ['Total general']
             tabla_pivote = tabla_pivote.reindex(index=filas_ordenadas)
 
-            # Mostrar la tabla con formato mejorado
-            st.dataframe(
-                tabla_pivote.style.format("{:.0f}").background_gradient(cmap='YlOrRd', axis=None, subset=(filas_ordenadas[:-1], columnas_finales[:-1])),
-                use_container_width=True
+            # Estilo de la tabla
+            tabla_estilo = tabla_pivote.style.format("{:.0f}").background_gradient(
+                cmap='YlOrRd', axis=None, subset=(filas_ordenadas[:-1], columnas_finales[:-1])
             )
 
-            # Generar gráfico complementario de la tabla
-            st.bar_chart(tabla_pivote.drop('Total general', axis=0).drop('Total general', axis=1))
+            # --- INTERACCIÓN DE CLIC EN LA TABLA ---
+            estado_seleccionado = None
+            mes_seleccionado = None
+
+            try:
+                # Utilizamos la propiedad de selección nativa de Streamlit
+                evento_click = st.dataframe(
+                    tabla_estilo,
+                    use_container_width=True,
+                    on_select="rerun",
+                    selection_mode="single-cell"
+                )
+                
+                # Extraer la fila y columna exactas donde el usuario hizo clic
+                if evento_click and len(evento_click.selection.rows) > 0 and len(evento_click.selection.columns) > 0:
+                    idx_fila = evento_click.selection.rows[0]
+                    nombre_columna = evento_click.selection.columns[0]
+                    
+                    estado_seleccionado = tabla_pivote.index[idx_fila]
+                    mes_seleccionado = nombre_columna
+            except Exception:
+                # Si la versión de Streamlit es antigua y no soporta "on_select"
+                st.dataframe(tabla_estilo, use_container_width=True)
+                st.info("💡 Tu versión de Streamlit no soporta clics en celdas. Usa los selectores de abajo (o actualiza con 'pip install --upgrade streamlit').")
+                col1, col2 = st.columns(2)
+                estado_seleccionado = col1.selectbox("Selecciona Estado:", options=filas_ordenadas)
+                mes_seleccionado = col2.selectbox("Selecciona Mes:", options=columnas_finales)
 
             st.markdown("---")
             
-            # --- SECCIÓN INTERACTIVA DE DETALLE (SIMULA EL CLICK EN LA CELDA) ---
-            st.write("### 🔍 Ver Detalle de Órdenes")
-            st.info("Selecciona la intersección de Estado y Mes de la tabla superior para visualizar y descargar las órdenes correspondientes.")
-            
-            col_estado, col_mes = st.columns(2)
-            estado_seleccionado = col_estado.selectbox("1. Selecciona el Estado:", options=filas_ordenadas)
-            mes_seleccionado = col_mes.selectbox("2. Selecciona la Fecha (Mes):", options=columnas_finales)
+            # --- SECCIÓN INTERACTIVA DE DETALLE BASADA EN EL CLIC ---
+            if estado_seleccionado and mes_seleccionado:
+                st.write(f"### 🔍 Detalle de Órdenes: {estado_seleccionado} | {mes_seleccionado}")
+                
+                df_detalle = df_filtrado.copy()
+                
+                if estado_seleccionado != 'Total general':
+                    df_detalle = df_detalle[df_detalle['Estado_Grupo'] == estado_seleccionado]
+                    
+                if mes_seleccionado != 'Total general':
+                    df_detalle = df_detalle[df_detalle['Mes'] == mes_seleccionado]
 
-            # Filtrar el dataframe original basado en la selección
-            df_detalle = df_filtrado.copy()
-            
-            if estado_seleccionado != 'Total general':
-                df_detalle = df_detalle[df_detalle['Estado_Grupo'] == estado_seleccionado]
-                
-            if mes_seleccionado != 'Total general':
-                df_detalle = df_detalle[df_detalle['Mes'] == mes_seleccionado]
+                if not df_detalle.empty:
+                    st.success(f"Se encontraron **{len(df_detalle)}** órdenes registradas.")
+                    
+                    col_serie = 'Serie' if 'Serie' in df_detalle.columns else 'Serie/Artículo'
+                    columnas_vista = ['#Orden', 'Fecha', 'Técnico', 'Cliente', 'Estado', 'Producto', col_serie, 'Repuestos']
+                    columnas_existentes = [col for col in columnas_vista if col in df_detalle.columns]
+                    
+                    st.dataframe(df_detalle[columnas_existentes], hide_index=True, use_container_width=True)
 
-            # --- MOSTRAR RESULTADOS Y DESCARGA ---
-            if not df_detalle.empty:
-                st.success(f"Mostrando {len(df_detalle)} órdenes para: **{estado_seleccionado}** en **{mes_seleccionado}**")
-                
-                col_serie = 'Serie' if 'Serie' in df_detalle.columns else 'Serie/Artículo'
-                columnas_vista = ['#Orden', 'Fecha', 'Técnico', 'Cliente', 'Estado', 'Producto', col_serie, 'Repuestos']
-                columnas_existentes = [col for col in columnas_vista if col in df_detalle.columns]
-                
-                st.dataframe(df_detalle[columnas_existentes], hide_index=True, use_container_width=True)
-
-                output_detalle = BytesIO()
-                with pd.ExcelWriter(output_detalle, engine='openpyxl') as writer:
-                    df_detalle[columnas_existentes].to_excel(writer, index=False, sheet_name='Detalle_Celda')
-                
-                st.download_button(
-                    label=f"📥 DESCARGAR ÓRDENES SELECCIONADAS ({len(df_detalle)})",
-                    data=output_detalle.getvalue(),
-                    file_name=f"Detalle_{estado_seleccionado.replace('/', '-')}_{mes_seleccionado}_{datetime.now().strftime('%Y%m%d')}.xlsx",
-                    use_container_width=True
-                )
+                    output_detalle = BytesIO()
+                    with pd.ExcelWriter(output_detalle, engine='openpyxl') as writer:
+                        df_detalle[columnas_existentes].to_excel(writer, index=False, sheet_name='Detalle_Seleccion')
+                    
+                    st.download_button(
+                        label=f"📥 DESCARGAR ESTAS {len(df_detalle)} ÓRDENES",
+                        data=output_detalle.getvalue(),
+                        file_name=f"Detalle_{estado_seleccionado.replace('/', '-')}_{mes_seleccionado}.xlsx",
+                        use_container_width=True
+                    )
+                else:
+                    st.warning("El recuadro seleccionado tiene un valor de 0 órdenes.")
             else:
-                st.warning("No hay órdenes en la celda seleccionada.")
+                st.info("👆 Haz clic en cualquier celda con números de la tabla de arriba para ver las órdenes correspondientes aquí abajo.")
+
         else:
             st.warning("No se encontraron datos en los últimos 3 meses bajo los estados y marcas especificados.")
     else:
