@@ -178,7 +178,7 @@ if archivos:
             st.markdown("---")
 
             # --- 2. GRÁFICOS GERENCIALES (Pastel y Líneas) ---
-            st.write("### 📈 Visualización Gerencial")
+            st.write("### RESUMEN")
             col_pie, col_line = st.columns(2)
 
             with col_pie:
