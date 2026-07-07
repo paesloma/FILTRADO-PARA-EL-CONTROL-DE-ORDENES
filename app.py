@@ -6,8 +6,11 @@ import plotly.express as px
 
 st.set_page_config(page_title="Dashboard Gerencial", layout="wide")
 
-# --- PALETA DE AZULES CORPORATIVA ---
-BLUE_PALETTE = ["#002244", "#003366", "#004488", "#0055aa", "#3377cc", "#6699ee"]
+# --- PALETA DE AZULES CORPORATIVA (Ampliada para 9 estados) ---
+BLUE_PALETTE = [
+    "#001122", "#002244", "#003366", "#004488", "#0055aa", 
+    "#0066cc", "#3385ff", "#66a3ff", "#99c2ff"
+]
 
 # --- INICIALIZACIÓN DE VARIABLES DE ESTADO ---
 if 'estado_sel' not in st.session_state: st.session_state.estado_sel = None
@@ -103,8 +106,19 @@ if archivos:
         elif not marcas_seleccionadas:
             df_filtrado = df_filtrado.iloc[0:0]
 
-        # Agrupación de Estados
-        estados_destacados = ["Proceso/Repuestos", "Solicita/Repuestos", "Envio/Repuestos", "Reparado/Pendiente Por Entregar", "Falta Aprobación"]
+        # Agrupación de Todos los Estados Solicitados
+        estados_destacados = [
+            "Anulado",
+            "Cerrada/Técnico",
+            "Envio/Repuestos",
+            "Facturado/Terminado",
+            "Falta Aprobación",
+            "Proceso/Repuestos",
+            "Reclamo proveedor",
+            "Reparado/Pendiente Por Entregar",
+            "Solicita/Repuestos"
+        ]
+        
         if not df_filtrado.empty:
             df_filtrado['Estado_Grupo'] = 'Otro'
             for est in estados_destacados:
@@ -182,13 +196,12 @@ if archivos:
                 )
                 fig_pie.update_layout(
                     margin=dict(t=40, b=20, l=0, r=0),
-                    legend=dict(orientation="h", yanchor="bottom", y=-0.3, xanchor="center", x=0.5)
+                    legend=dict(orientation="h", yanchor="bottom", y=-0.5, xanchor="center", x=0.5)
                 )
                 st.plotly_chart(fig_pie, use_container_width=True)
 
             with col_line:
                 # Gráfico de Líneas (Tendencia)
-                # Agrupamos por Mes_Num para garantizar que el gráfico respete el orden cronológico
                 df_trend = df_filtrado.groupby(['Mes_Num', 'Mes', 'Estado_Grupo']).size().reset_index(name='Cantidad')
                 df_trend = df_trend.sort_values('Mes_Num')
                 
@@ -203,7 +216,7 @@ if archivos:
                 )
                 fig_line.update_layout(
                     margin=dict(t=40, b=20, l=0, r=0),
-                    legend=dict(orientation="h", yanchor="bottom", y=-0.3, xanchor="center", x=0.5),
+                    legend=dict(orientation="h", yanchor="bottom", y=-0.5, xanchor="center", x=0.5),
                     xaxis_title=None,
                     yaxis_title="Cantidad de Órdenes"
                 )
