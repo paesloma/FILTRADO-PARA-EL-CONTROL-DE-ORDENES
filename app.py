@@ -51,7 +51,7 @@ if archivos:
         if '#Orden' in df_total.columns:
             df_total = df_total.drop_duplicates(subset=['#Orden'])
 
-        # Evitar incluir la red técnica interna
+        # Evitar incluir la red técnica interna centralizada
         if 'Técnico' in df_total.columns:
             df_total = df_total[~df_total['Técnico'].str.upper().str.startswith('GO', na=False)]
 
@@ -129,7 +129,7 @@ if archivos:
                 margins_name='Total general'
             )
             
-            # Ordenamiento
+            # Ordenamiento cronológico
             meses_ordenados = df_filtrado.sort_values('Mes_Num')['Mes'].unique().tolist()
             columnas_finales = [m for m in meses_ordenados if m in tabla_pivote.columns] + ['Total general']
             tabla_pivote = tabla_pivote.reindex(columns=columnas_finales)
@@ -143,11 +143,11 @@ if archivos:
             )
 
             # --- RENDERIZADO VISUAL: TABLA Y GRÁFICO ---
-            col_tabla, col_grafico = st.columns([2, 1])
+            col_tabla, col_grafico = st.columns([1.5, 1])
 
             with col_tabla:
-                st.write("### 📊 Recuento de #Orden por Estado y Mes")
-                st.caption("👈 **HAZ CLIC DIRECTAMENTE EN UNA CELDA** para ver las órdenes abajo.")
+                st.write("### 📊 Recuento por Estado y Mes")
+                st.caption("👈 **HAZ CLIC UNA VEZ EN UNA CELDA** para ver el detalle abajo.")
                 
                 # INTERACCIÓN DE CLIC EN LA TABLA
                 seleccion = st.dataframe(
@@ -158,8 +158,7 @@ if archivos:
                 )
 
             with col_grafico:
-                st.write("### 🥧 Distribución de Estados")
-                # Preparamos los datos para el pie chart excluyendo el 'Total general'
+                st.write("### 🥧 Distribución General")
                 df_pie = df_filtrado['Estado_Grupo'].value_counts().reset_index()
                 df_pie.columns = ['Estado', 'Cantidad']
                 
@@ -170,22 +169,27 @@ if archivos:
                     hole=0.4, 
                     color_discrete_sequence=px.colors.sequential.YlOrRd[::-1]
                 )
-                fig.update_layout(margin=dict(t=0, b=0, l=0, r=0))
+                
+                # Ajustar leyenda y márgenes para que se vea bien
+                fig.update_layout(
+                    margin=dict(t=20, b=20, l=0, r=0),
+                    legend=dict(orientation="h", yanchor="bottom", y=-0.5, xanchor="center", x=0.5)
+                )
                 st.plotly_chart(fig, use_container_width=True)
 
             st.markdown("---")
             
-            # --- LÓGICA DE EXTRACCIÓN DEL CLIC ---
+            # --- LÓGICA CORREGIDA DE EXTRACCIÓN DEL CLIC ---
             estado_seleccionado = None
             mes_seleccionado = None
 
-            # Si el usuario hizo clic en una celda, extraemos sus coordenadas
             if seleccion and len(seleccion.selection.rows) > 0 and len(seleccion.selection.columns) > 0:
                 idx_fila = seleccion.selection.rows[0]
-                nombre_columna = seleccion.selection.columns[0]
+                idx_columna = seleccion.selection.columns[0]
                 
+                # Traducir los índices numéricos a los nombres reales de las filas y columnas
                 estado_seleccionado = tabla_pivote.index[idx_fila]
-                mes_seleccionado = nombre_columna
+                mes_seleccionado = tabla_pivote.columns[idx_columna]
 
             # --- SECCIÓN INTERACTIVA DE DETALLE ---
             if estado_seleccionado and mes_seleccionado:
