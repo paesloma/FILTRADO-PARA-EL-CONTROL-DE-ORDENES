@@ -26,7 +26,7 @@ if 'estado_sel' not in st.session_state: st.session_state.estado_sel = None
 if 'mes_sel' not in st.session_state: st.session_state.mes_sel = None
 
 st.markdown("""<div style="background: #003366; padding: 20px; border-radius: 10px; color: white; text-align: center; margin-bottom: 20px;">
-    <h1 style="margin:0;">🛠️ DASHBOARD GERENCIAL: CONTROL DE REPUESTOS</h1></div>""", unsafe_allow_html=True)
+    <h1 style="margin:0;">ORDENES DE SERVICIO</h1></div>""", unsafe_allow_html=True)
 
 archivos = st.file_uploader("Cargar archivos de órdenes", type=["xls", "xlsx", "csv"], accept_multiple_files=True)
 
