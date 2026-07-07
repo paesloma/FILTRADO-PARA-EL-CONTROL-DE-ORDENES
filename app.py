@@ -8,8 +8,8 @@ st.set_page_config(page_title="Gestión de Repuestos - Dashboard", layout="wide"
 # --- BANNER ---
 st.markdown(f"""
     <div style="background: linear-gradient(90deg, #1F4E78 0%, #2E75B6 100%); padding: 20px; border-radius: 15px; color: white; text-align: center; margin-bottom: 20px;">
-        <h1 style="margin:0;">🛠️ GESTIÓN Y DASHBOARD DE REPUESTOS </h1>
-        <p style="margin:0;">SISTEMA ACTUALIZADO - <b>{datetime.now().strftime("%d/%m/%Y")}</b></p>
+        <h1 style="margin:0;">🛠️ DASHBOARD DE ESTADOS Y REPUESTOS </h1>
+        <p style="margin:0;">RESUMEN Y DETALLE - <b>{datetime.now().strftime("%d/%m/%Y")}</b></p>
     </div>
     """, unsafe_allow_html=True)
 
@@ -32,35 +32,33 @@ if archivos:
         df_total.columns = df_total.columns.str.strip()
 
         # Limpieza y normalización
-        for col in ['Estado', 'Técnico', 'Repuestos', 'Serie', 'Serie/Artículo', 'Producto', 'Marca']:
+        columnas_base = ['Estado', 'Técnico', 'Repuestos', 'Serie', 'Serie/Artículo', 'Producto', 'Marca']
+        for col in columnas_base:
             if col in df_total.columns:
                 df_total[col] = df_total[col].fillna('').astype(str).str.strip()
 
         # --- MANEJO DE FECHAS ---
         if 'Fecha' in df_total.columns:
             df_total['Fecha_Obj'] = pd.to_datetime(df_total['Fecha'], errors='coerce', dayfirst=True)
-            df_total['Mes_Año'] = df_total['Fecha_Obj'].dt.strftime('%Y-%m').fillna('Sin Fecha')
+            # Crear columna de Mes abreviado (Ej: Jan, Feb, Mar)
+            df_total['Mes'] = df_total['Fecha_Obj'].dt.strftime('%b')
+            # Columna de ordenación de meses para mantener la cronología
+            df_total['Mes_Num'] = df_total['Fecha_Obj'].dt.to_period('M')
         else:
             df_total['Fecha_Obj'] = pd.NaT
-            df_total['Mes_Año'] = 'Sin Fecha'
+            df_total['Mes'] = 'Sin Fecha'
+            df_total['Mes_Num'] = pd.Period('1900-01', freq='M')
 
         if '#Orden' in df_total.columns:
             df_total = df_total.drop_duplicates(subset=['#Orden'])
 
-        # Evitar incluir técnicos internos centralizados
+        # Evitar incluir la red técnica interna
         if 'Técnico' in df_total.columns:
             df_total = df_total[~df_total['Técnico'].str.upper().str.startswith('GO', na=False)]
 
-        # --- BARRA LATERAL: MODO Y FILTROS ---
-        st.sidebar.header("⚙️ OPCIONES Y MODO DE VISTA")
+        # --- FILTROS DE BARRA LATERAL ---
+        st.sidebar.header("⚙️ FILTROS GLOBALES")
         
-        modo_vista = st.sidebar.radio(
-            "👁️ Selecciona el Modo de Trabajo:",
-            ["📊 Dashboard General (Últimos 3 Meses)", "🛠️ Gestión Detallada (Por Taller)"]
-        )
-
-        st.sidebar.markdown("---")
-        st.sidebar.subheader("📌 Filtrar por Estado")
         estados_destacados = [
             "Proceso/Repuestos",
             "Solicita/Repuestos",
@@ -68,65 +66,31 @@ if archivos:
             "Reparado/Pendiente Por Entregar",
             "Falta Aprobación"
         ]
-        estados_seleccionados = st.sidebar.multiselect(
-            "Selecciona los estados a procesar:",
-            options=estados_destacados,
-            default=estados_destacados
-        )
-
-        st.sidebar.markdown("---")
-        st.sidebar.subheader("🔍 Filtrar por Marca")
+        
         marcas_seleccionadas = st.sidebar.multiselect(
-            "Selecciona las marcas a mostrar:",
+            "🔍 Filtrar por Marca:",
             options=["TCL", "RCA", "PHILIPS", "OTRAS"],
             default=["TCL", "RCA", "PHILIPS", "OTRAS"]
         )
 
-        st.sidebar.markdown("---")
-        ocultar_tvs = st.sidebar.checkbox("🚫 Ocultar Televisores / TVs genéricos", value=False)
+        ocultar_tvs = st.sidebar.checkbox("🚫 Ocultar Televisores genéricos", value=False)
 
-        # --- APLICACIÓN DE MÁSCARAS (BASE) ---
+        # --- APLICACIÓN DE MÁSCARAS ---
         df_filtrado = df_total.copy()
 
-        # 1. Filtro de Fechas (Dependiendo del modo)
-        if "Dashboard" in modo_vista:
-            st.sidebar.info("📅 En modo Dashboard, se muestran automáticamente los últimos 3 meses de datos.")
-            fecha_limite = pd.to_datetime('today') - pd.DateOffset(months=3)
-            df_filtrado = df_filtrado[df_filtrado['Fecha_Obj'] >= fecha_limite]
-        else:
-            st.sidebar.subheader("📅 Filtrar por Mes (Gestión Detallada)")
-            meses_disponibles = sorted(df_filtrado['Mes_Año'].unique().tolist(), reverse=True)
-            meses_seleccionados = st.sidebar.multiselect("Selecciona meses:", options=meses_disponibles, default=meses_disponibles)
-            if meses_seleccionados:
-                df_filtrado = df_filtrado[df_filtrado['Mes_Año'].isin(meses_seleccionados)]
-            else:
-                df_filtrado = df_filtrado.iloc[0:0]
-
-        # 2. Filtro de Estado
-        if estados_seleccionados and not df_filtrado.empty:
-            condiciones_estado = [df_filtrado['Estado'].str.contains(est, case=False, na=False, regex=False) for est in estados_seleccionados]
-            mask_estados = condiciones_estado[0]
-            for cond in condiciones_estado[1:]:
-                mask_estados |= cond
-            df_filtrado = df_filtrado[mask_estados]
-        else:
-            df_filtrado = df_filtrado.iloc[0:0]
-
-        # 3. Filtro Ocultar TVs
+        # 1. Filtro Ocultar TVs
         if ocultar_tvs and not df_filtrado.empty:
             df_filtrado = df_filtrado[~df_filtrado['Producto'].str.contains('TELEVISOR|TV', case=False, na=False)]
 
-        # 4. Filtro de Marcas
+        # 2. Filtro de Marcas
         if not df_filtrado.empty and marcas_seleccionadas:
             texto_busqueda = (df_filtrado['Marca'] + " " + df_filtrado['Producto']) if 'Marca' in df_filtrado.columns else df_filtrado['Producto']
 
             mask_rca = texto_busqueda.str.contains('RCA', case=False, na=False)
             mask_philips = texto_busqueda.str.contains('PHILIPS|PHILIP', case=False, na=False)
-            
             mask_tcl_exp = texto_busqueda.str.contains('TCL', case=False, na=False)
             mask_tv_gen = df_filtrado['Producto'].str.contains('TELEVISOR', case=False, na=False)
             mask_tcl = mask_tcl_exp | (mask_tv_gen & ~mask_rca & ~mask_philips)
-            
             mask_otras = ~(mask_tcl | mask_rca | mask_philips)
 
             mask_final_marcas = pd.Series(False, index=df_filtrado.index)
@@ -139,93 +103,100 @@ if archivos:
         elif not marcas_seleccionadas:
             df_filtrado = df_filtrado.iloc[0:0]
 
-        # --- RENDERIZADO DE VISTAS ---
-        if df_filtrado.empty:
-            st.warning("No hay órdenes disponibles con los filtros actuales.")
-        else:
-            if "Dashboard" in modo_vista:
-                # ==========================================
-                # VISTA 1: DASHBOARD RESUMEN
-                # ==========================================
-                st.write("### 📈 Resumen de Órdenes (Últimos 3 Meses)")
+        # 3. Filtrar a los últimos 3 meses con datos
+        meses_unicos = sorted(df_filtrado['Mes_Num'].dropna().unique(), reverse=True)
+        meses_3 = meses_unicos[:3] # Tomar los 3 más recientes
+        df_filtrado = df_filtrado[df_filtrado['Mes_Num'].isin(meses_3)]
+
+        # 4. Filtrar solo los estados de interés
+        if not df_filtrado.empty:
+            condiciones_estado = [df_filtrado['Estado'].str.contains(est, case=False, na=False, regex=False) for est in estados_destacados]
+            mask_estados = condiciones_estado[0]
+            for cond in condiciones_estado[1:]:
+                mask_estados |= cond
+            df_filtrado = df_filtrado[mask_estados]
+
+            # Reemplazar el nombre del estado en el dataframe por el nombre exacto de la lista para agrupar correctamente
+            for est in estados_destacados:
+                df_filtrado.loc[df_filtrado['Estado'].str.contains(est, case=False, na=False, regex=False), 'Estado_Grupo'] = est
+
+        if not df_filtrado.empty:
+            # --- CONSTRUCCIÓN DE LA TABLA DINÁMICA ---
+            st.write("### 📊 Recuento de #Orden por Estado y Mes")
+            st.caption("Muestra los datos de los últimos 3 meses registrados. Utiliza los selectores debajo de la tabla para ver el detalle de las órdenes.")
+            
+            # Crear la tabla dinámica
+            tabla_pivote = pd.pivot_table(
+                df_filtrado, 
+                values='#Orden', 
+                index='Estado_Grupo', 
+                columns='Mes', 
+                aggfunc='count', 
+                fill_value=0,
+                margins=True,
+                margins_name='Total general'
+            )
+            
+            # Ordenar las columnas cronológicamente (basado en el orden de meses encontrados)
+            meses_ordenados = df_filtrado.sort_values('Mes_Num')['Mes'].unique().tolist()
+            columnas_finales = [m for m in meses_ordenados if m in tabla_pivote.columns] + ['Total general']
+            tabla_pivote = tabla_pivote.reindex(columns=columnas_finales)
+
+            # Ordenar las filas según la lista de estados destacados (dejando el Total al final)
+            filas_ordenadas = [e for e in estados_destacados if e in tabla_pivote.index] + ['Total general']
+            tabla_pivote = tabla_pivote.reindex(index=filas_ordenadas)
+
+            # Mostrar la tabla con formato mejorado
+            st.dataframe(
+                tabla_pivote.style.format("{:.0f}").background_gradient(cmap='YlOrRd', axis=None, subset=(filas_ordenadas[:-1], columnas_finales[:-1])),
+                use_container_width=True
+            )
+
+            # Generar gráfico complementario de la tabla
+            st.bar_chart(tabla_pivote.drop('Total general', axis=0).drop('Total general', axis=1))
+
+            st.markdown("---")
+            
+            # --- SECCIÓN INTERACTIVA DE DETALLE (SIMULA EL CLICK EN LA CELDA) ---
+            st.write("### 🔍 Ver Detalle de Órdenes")
+            st.info("Selecciona la intersección de Estado y Mes de la tabla superior para visualizar y descargar las órdenes correspondientes.")
+            
+            col_estado, col_mes = st.columns(2)
+            estado_seleccionado = col_estado.selectbox("1. Selecciona el Estado:", options=filas_ordenadas)
+            mes_seleccionado = col_mes.selectbox("2. Selecciona la Fecha (Mes):", options=columnas_finales)
+
+            # Filtrar el dataframe original basado en la selección
+            df_detalle = df_filtrado.copy()
+            
+            if estado_seleccionado != 'Total general':
+                df_detalle = df_detalle[df_detalle['Estado_Grupo'] == estado_seleccionado]
                 
-                # Tarjetas de métricas superiores
-                metric_cols = st.columns(len(estados_seleccionados) + 1)
-                metric_cols[0].metric(label="🔢 Total General", value=len(df_filtrado))
+            if mes_seleccionado != 'Total general':
+                df_detalle = df_detalle[df_detalle['Mes'] == mes_seleccionado]
+
+            # --- MOSTRAR RESULTADOS Y DESCARGA ---
+            if not df_detalle.empty:
+                st.success(f"Mostrando {len(df_detalle)} órdenes para: **{estado_seleccionado}** en **{mes_seleccionado}**")
                 
-                for idx, estado in enumerate(estados_seleccionados):
-                    conteo = len(df_filtrado[df_filtrado['Estado'].str.contains(estado, case=False, na=False, regex=False)])
-                    metric_cols[idx + 1].metric(label=estado.split('/')[0], value=conteo)
-
-                st.markdown("---")
+                col_serie = 'Serie' if 'Serie' in df_detalle.columns else 'Serie/Artículo'
+                columnas_vista = ['#Orden', 'Fecha', 'Técnico', 'Cliente', 'Estado', 'Producto', col_serie, 'Repuestos']
+                columnas_existentes = [col for col in columnas_vista if col in df_detalle.columns]
                 
-                # Búsqueda interactiva de orden
-                st.write("### 🔍 Consulta Individual de Órdenes")
-                col_busqueda, col_vacia = st.columns([1, 1])
-                with col_busqueda:
-                    lista_ordenes = [""] + df_filtrado['#Orden'].astype(str).tolist()
-                    orden_seleccionada = st.selectbox("Seleccione o escriba un Número de Orden:", lista_ordenes)
+                st.dataframe(df_detalle[columnas_existentes], hide_index=True, use_container_width=True)
 
-                if orden_seleccionada:
-                    df_orden = df_filtrado[df_filtrado['#Orden'].astype(str) == orden_seleccionada]
-                    st.success(f"Mostrando toda la información para la Orden: **{orden_seleccionada}**")
-                    
-                    # Mostrar datos transpuestos para mejor lectura individual
-                    st.table(df_orden.T.rename(columns={df_orden.index[0]: 'Valor del Registro'}))
-
-                    # Descarga específica de la orden
-                    output_orden = BytesIO()
-                    with pd.ExcelWriter(output_orden, engine='openpyxl') as writer:
-                        df_orden.to_excel(writer, index=False, sheet_name='Detalle_Orden')
-                    
-                    st.download_button(
-                        label="📥 DESCARGAR DETALLE DE ESTA ORDEN",
-                        data=output_orden.getvalue(),
-                        file_name=f"Detalle_Orden_{orden_seleccionada}.xlsx",
-                        use_container_width=False
-                    )
-
+                output_detalle = BytesIO()
+                with pd.ExcelWriter(output_detalle, engine='openpyxl') as writer:
+                    df_detalle[columnas_existentes].to_excel(writer, index=False, sheet_name='Detalle_Celda')
+                
+                st.download_button(
+                    label=f"📥 DESCARGAR ÓRDENES SELECCIONADAS ({len(df_detalle)})",
+                    data=output_detalle.getvalue(),
+                    file_name=f"Detalle_{estado_seleccionado.replace('/', '-')}_{mes_seleccionado}_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                    use_container_width=True
+                )
             else:
-                # ==========================================
-                # VISTA 2: GESTIÓN DETALLADA (CÓDIGO ANTERIOR)
-                # ==========================================
-                df_filtrado.insert(0, 'Procesado', False)
-                col_serie = 'Serie' if 'Serie' in df_filtrado.columns else 'Serie/Artículo'
-                columnas_vista = ['Procesado', '#Orden', 'Fecha', 'Técnico', 'Cliente', 'Estado', 'Producto', col_serie, 'Repuestos', 'Mes_Año']
-                columnas_existentes = [col for col in columnas_vista if col in df_filtrado.columns]
-
-                st.metric("Órdenes Identificadas", len(df_filtrado))
-                st.write("### 📂 Talleres con Órdenes Pendientes")
-                st.info("Haz clic en cada taller para ver sus órdenes.")
-
-                talleres = sorted(df_filtrado['Técnico'].unique())
-                resultados_finales = []
-
-                for taller in talleres:
-                    df_taller = df_filtrado[df_filtrado['Técnico'] == taller]
-                    with st.expander(f"📍 {taller.upper()} - ({len(df_taller)} Órdenes)"):
-                        df_edit = st.data_editor(
-                            df_taller[columnas_existentes],
-                            key=f"edit_{taller}",
-                            hide_index=True,
-                            use_container_width=True,
-                            column_config={"Procesado": st.column_config.CheckboxColumn("¿Listo?", default=False)},
-                            disabled=[col for col in columnas_existentes if col != "Procesado"]
-                        )
-                        resultados_finales.append(df_edit)
-
-                if resultados_finales:
-                    df_descarga = pd.concat(resultados_finales)
-                    output = BytesIO()
-                    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                        df_descarga.to_excel(writer, index=False, sheet_name='Consolidado')
-                    
-                    st.markdown("---")
-                    st.download_button(
-                        label="📥 DESCARGAR CONSOLIDADO COMPLETO",
-                        data=output.getvalue(),
-                        file_name=f"Repuestos_Agrupados_{datetime.now().strftime('%Y%m%d')}.xlsx",
-                        use_container_width=True
-                    )
+                st.warning("No hay órdenes en la celda seleccionada.")
+        else:
+            st.warning("No se encontraron datos en los últimos 3 meses bajo los estados y marcas especificados.")
     else:
         st.warning("Aún no se han cargado datos válidos.")
