@@ -3,7 +3,7 @@ import pandas as pd
 from datetime import datetime
 from io import BytesIO
 
-st.set_page_config(page_title="Gestión de Repuestos - Desplegable", layout="wide")
+st.set_page_config(page_title="Gestión de Repuestos - Desplegable", layout="wide")   
 
 # --- BANNER ---
 st.markdown(f"""
@@ -31,8 +31,8 @@ if archivos:
         df_total = pd.concat(lista_df, ignore_index=True)
         df_total.columns = df_total.columns.str.strip()
 
-        # Limpieza y normalización
-        for col in ['Estado', 'Técnico', 'Repuestos', 'Serie', 'Serie/Artículo', 'Producto']:
+        # Limpieza y normalización (incluyendo la columna 'Marca' por si existe explícitamente)
+        for col in ['Estado', 'Técnico', 'Repuestos', 'Serie', 'Serie/Artículo', 'Producto', 'Marca']:
             if col in df_total.columns:
                 df_total[col] = df_total[col].fillna('').astype(str).str.strip()
 
@@ -57,50 +57,85 @@ if archivos:
             if ocultar_tvs:
                 df_filtrado = df_filtrado[~df_filtrado['Producto'].str.contains('TELEVISOR|TV', case=False, na=False)]
 
-            df_filtrado.insert(0, 'Procesado', False)
-            col_serie = 'Serie' if 'Serie' in df_filtrado.columns else 'Serie/Artículo'
-            columnas_vista = ['Procesado', '#Orden', 'Fecha', 'Técnico', 'Cliente', 'Estado', 'Producto', col_serie, 'Repuestos']
-
-            st.metric("Órdenes Identificadas", len(df_filtrado))
-
-            # --- LISTA DESPLEGABLE HACIA ABAJO ---
-            st.write("### 📂 Talleres con Órdenes Pendientes")
-            st.info("Haz clic en cada taller para ver sus órdenes.")
-
-            talleres = sorted(df_filtrado['Técnico'].unique())
+            # --- NUEVO FILTRO POR MARCA ---
+            st.sidebar.markdown("---")
+            st.sidebar.subheader("🔍 Filtrar por Marca")
+            marcas_seleccionadas = st.sidebar.multiselect(
+                "Selecciona las marcas a mostrar:",
+                options=["TCL", "RCA", "PHILIPS", "OTRAS"],
+                default=["TCL", "RCA", "PHILIPS", "OTRAS"]
+            )
             
-            # Diccionario para almacenar los dataframes editados
-            resultados_finales = []
-
-            for taller in talleres:
-                df_taller = df_filtrado[df_filtrado['Técnico'] == taller]
-                # Cada taller es un desplegable vertical
-                with st.expander(f"📍 {taller.upper()} - ({len(df_taller)} Órdenes)"):
-                    df_edit = st.data_editor(
-                        df_taller[columnas_vista],
-                        key=f"edit_{taller}",
-                        hide_index=True,
-                        use_container_width=True,
-                        column_config={
-                            "Procesado": st.column_config.CheckboxColumn("¿Listo?", default=False)
-                        },
-                        disabled=[col for col in columnas_vista if col != "Procesado"]
-                    )
-                    resultados_finales.append(df_edit)
-
-            # --- BOTÓN DE DESCARGA ---
-            if resultados_finales:
-                df_descarga = pd.concat(resultados_finales)
-                output = BytesIO()
-                with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                    df_descarga.to_excel(writer, index=False, sheet_name='Consolidado')
+            if marcas_seleccionadas:
+                # Detecta automáticamente si existe una columna 'Marca', de lo contrario busca en 'Producto'
+                col_buscar = 'Marca' if 'Marca' in df_filtrado.columns else 'Producto'
+                condiciones = []
                 
-                st.markdown("---")
-                st.download_button(
-                    label="📥 DESCARGAR CONSOLIDADO COMPLETO",
-                    data=output.getvalue(),
-                    file_name=f"Repuestos_Agrupados_{datetime.now().strftime('%Y%m%d')}.xlsx",
-                    use_container_width=True
-                )
+                if "TCL" in marcas_seleccionadas:
+                    condiciones.append(df_filtrado[col_buscar].str.contains('TCL', case=False, na=False))
+                if "RCA" in marcas_seleccionadas:
+                    condiciones.append(df_filtrado[col_buscar].str.contains('RCA', case=False, na=False))
+                if "PHILIPS" in marcas_seleccionadas:
+                    condiciones.append(df_filtrado[col_buscar].str.contains('PHILIPS|PHILIP', case=False, na=False))
+                if "OTRAS" in marcas_seleccionadas:
+                    condiciones.append(~df_filtrado[col_buscar].str.contains('TCL|RCA|PHILIPS|PHILIP', case=False, na=False))
+                
+                if condiciones:
+                    mask_marcas = condiciones[0]
+                    for cond in condiciones[1:]:
+                        mask_marcas = mask_marcas | cond
+                    df_filtrado = df_filtrado[mask_marcas]
+            else:
+                df_filtrado = df_filtrado.iloc[0:0] # Vacío si desmarcan todas las opciones
+
+            # --- RENDERIZADO DE INTERFAZ POST-FILTROS ---
+            if not df_filtrado.empty:
+                df_filtrado.insert(0, 'Procesado', False)
+                col_serie = 'Serie' if 'Serie' in df_filtrado.columns else 'Serie/Artículo'
+                columnas_vista = ['Procesado', '#Orden', 'Fecha', 'Técnico', 'Cliente', 'Estado', 'Producto', col_serie, 'Repuestos']
+
+                st.metric("Órdenes Identificadas", len(df_filtrado))
+
+                # --- LISTA DESPLEGABLE HACIA ABAJO ---
+                st.write("### 📂 Talleres con Órdenes Pendientes")
+                st.info("Haz clic en cada taller para ver sus órdenes.")
+
+                talleres = sorted(df_filtrado['Técnico'].unique())
+                
+                # Diccionario para almacenar los dataframes editados
+                resultados_finales = []
+
+                for taller in talleres:
+                    df_taller = df_filtrado[df_filtrado['Técnico'] == taller]
+                    # Cada taller es un desplegable vertical
+                    with st.expander(f"📍 {taller.upper()} - ({len(df_taller)} Órdenes)"):
+                        df_edit = st.data_editor(
+                            df_taller[columnas_vista],
+                            key=f"edit_{taller}",
+                            hide_index=True,
+                            use_container_width=True,
+                            column_config={
+                                "Procesado": st.column_config.CheckboxColumn("¿Listo?", default=False)
+                            },
+                            disabled=[col for col in columnas_vista if col != "Procesado"]
+                        )
+                        resultados_finales.append(df_edit)
+
+                # --- BOTÓN DE DESCARGA ---
+                if resultados_finales:
+                    df_descarga = pd.concat(resultados_finales)
+                    output = BytesIO()
+                    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                        df_descarga.to_excel(writer, index=False, sheet_name='Consolidado')
+                    
+                    st.markdown("---")
+                    st.download_button(
+                        label="📥 DESCARGAR CONSOLIDADO COMPLETO",
+                        data=output.getvalue(),
+                        file_name=f"Repuestos_Agrupados_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                        use_container_width=True
+                    )
+            else:
+                st.warning("No quedan órdenes disponibles con los filtros de marca seleccionados.")
         else:
             st.warning("No se encontraron las órdenes bajo los filtros de exclusión.")
