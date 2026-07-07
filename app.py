@@ -16,7 +16,7 @@ if 'mes_sel' not in st.session_state:
 # --- BANNER ---
 st.markdown(f"""
     <div style="background: linear-gradient(90deg, #1F4E78 0%, #2E75B6 100%); padding: 20px; border-radius: 15px; color: white; text-align: center; margin-bottom: 20px;">
-        <h1 style="margin:0;">🛠️ DASHBOARD DE ESTADOS Y REPUESTOS </h1>
+        <h1 style="margin:0;">  ESTADOS Y REPUESTOS </h1>
         <p style="margin:0;">RESUMEN Y DETALLE - <b>{datetime.now().strftime("%d/%m/%Y")}</b></p>
     </div>
     """, unsafe_allow_html=True)
@@ -174,7 +174,7 @@ if archivos:
                             st.session_state.mes_sel = mes
 
             with col_grafico:
-                st.write("### 🥧 Distribución General")
+                st.write("### ESTADOS ")
                 df_pie = df_filtrado['Estado_Grupo'].value_counts().reset_index()
                 df_pie.columns = ['Estado', 'Cantidad']
                 
